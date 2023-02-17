@@ -2,8 +2,8 @@
   description = "A very basic flake";
 
   nixConfig = {
-    extra-trusted-public-keys = "devenv.cachix.org-1:w1cLUi8dv3hnoSPGAuibQv+f9TZLr6cv/Hm9XgU50cw=";
-    extra-substituters = "https://devenv.cachix.org";
+    extra-trusted-public-keys = "babbaj.cachix.org-1:lmq/0FXqmMccEP0kUz2gnAks2BtlS4NGTDh48bBpax4=";
+    extra-substituters = "https://babbaj.cachix.org";
   };
 
   outputs = { self, nixpkgs }:
