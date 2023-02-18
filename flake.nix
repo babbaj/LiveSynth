@@ -21,6 +21,10 @@
       deps = p: with p; [
         (openai-whisper.override({torch = torchWithCuda;}))
         pynput
+        requests
+        pydub
+        sounddevice
+        pyaudio
       ];
       python-env = (pkgs.python3.withPackages deps);
     in pkgs.mkShell rec {
