@@ -38,7 +38,7 @@ class AudioStream:
 
 def call_api(text, voice_id, api_key):
     url = 'https://api.elevenlabs.io/v1/text-to-speech/' + voice_id
-    print(url)
+    #print(url)
     headers = {
         'accept': 'audio/mpeg',
         'Content-Type': 'application/json',
@@ -65,10 +65,7 @@ def call_api(text, voice_id, api_key):
 
 
 def transcribe(stream):
-    # print("transcribing...")
     result = model.transcribe(stream.buffer, language="en")
-    # print("done transcribing:")
-    # print(result["text"])
     return result["text"]
 
 def output_data(raw_data):
@@ -96,9 +93,13 @@ def read_until_stopped():
         stream.buffer = np.append(stream.buffer, audio_chunk)
     print("finished reading", stream.buffer.size, "bytes")
     text = transcribe(stream)
-    print("calling api with:", text)
-    raw_data = call_api(text, voice_id, api_key)
-    output_data(raw_data)
+    if len(text.strip()):
+        print("calling api with:", text)
+        raw_data = call_api(text, voice_id, api_key)
+        if raw_data is not None:
+            output_data(raw_data)
+    else:
+        print("empty string")
     stream = None
 
 
