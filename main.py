@@ -30,12 +30,12 @@ def audio_commands(source, sink):
         if process.info['name'] == 'pipewire':
             return (
                 ["pw-record", *(["--target", source] if source else []), *format(SAMPLE_RATE), "--latency=50", "-"],
-                ["pw-cat", *(["--target", sink] if source else []), *format(44100), "-p", "-"]
+                ["pw-cat", *(["--target", sink] if sink else []), *format(44100), "-p", "-"]
             )
         elif process.info['name'] == 'pulseaudio':
             return (
                 ["parec", *(["--device", source] if source else []), *format(SAMPLE_RATE), "--latency-msec=50"],
-                ["pacat", *(["--device", sink] if source else []), *format(44100)]
+                ["pacat", *(["--device", sink] if sink else []), *format(44100)]
             )
     else:
         print(f"No process named \"pipewire\" or \"pulseaudio\" running")
@@ -148,7 +148,10 @@ input_source = args.input_source
 output_sink = args.output_sink
 api_key = args.api_key
 
+print(output_sink)
 record_cmd, cat_cmd = audio_commands(input_source, output_sink)
+print("record =", record_cmd)
+print("playback =", cat_cmd)
 
 print("Loading model...")
 model = whisper.load_model("medium")
