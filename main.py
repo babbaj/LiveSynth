@@ -1,9 +1,11 @@
 import io
 import sys
+import os
+import argparse
+from enum import Enum
 
 import whisper
 from whisper.audio import SAMPLE_RATE
-import ffmpeg
 import numpy as np
 import signal
 import threading
@@ -11,34 +13,50 @@ import subprocess
 import requests
 from pydub import AudioSegment
 from pynput import keyboard
+import psutil
 
 
-class AudioStream:
-    def __init__(self):
+class State(Enum):
+    IDLE = 1
+    RECORDING = 2
+    TRANSCRIBING = 3
+    GENERATING = 4
+    PLAYING = 5
+
+
+def audio_commands(source, sink):
+    format = lambda r: ["--rate=" + str(r), "--channels=1"]  # both default to s16
+    for process in psutil.process_iter(['name']):
+        if process.info['name'] == 'pipewire':
+            return (
+                ["pw-record", *(["--target", source] if source else []), *format(SAMPLE_RATE), "--latency=50", "-"],
+                ["pw-cat", *(["--target", sink] if source else []), *format(44100), "-p", "-"]
+            )
+        elif process.info['name'] == 'pulseaudio':
+            return (
+                ["parec", *(["--device", source] if source else []), *format(SAMPLE_RATE), "--latency-msec=50"],
+                ["pacat", *(["--device", sink] if source else []), *format(44100)]
+            )
+    else:
+        print(f"No process named \"pipewire\" or \"pulseaudio\" running")
+
+
+class MicInput:
+    def __init__(self, command):
         try:
-            # this is cringe as heck
-            # self.process = (
-            #    ffmpeg.input("default", format="pulse", loglevel="panic")
-            #    .output("pipe:", format="s16le", acodec="pcm_s16le", ac=1, ar=SAMPLE_RATE)
-            #    .run_async(pipe_stdout=True)
-            # )
-
-            # might be a good idea to replace this with https://larsimmisch.github.io/pyalsaaudio/libalsaaudio.html
-            # or https://soundcard.readthedocs.io/en/latest/
-            command = ["arecord", "-f", "S16_LE", "-r", str(SAMPLE_RATE), "-c", "1", "-"]
+            self.command = command
             self.process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        except ffmpeg.Error as e:
-            raise RuntimeError(f"Failed to load audio: {e.stderr.decode()}") from e
+        except subprocess.CalledProcessError as e:
+            print(f"Command '{e.cmd}' failed with return code {e.returncode}")
+            exit(1)
         self.buffer = np.empty(0, dtype=np.int16)
 
     def stop(self):
         self.process.send_signal(signal.SIGINT)
-        # self.process.terminate()
 
 
 def call_api(text, voice_id, api_key):
     url = 'https://api.elevenlabs.io/v1/text-to-speech/' + voice_id
-    #print(url)
     headers = {
         'accept': 'audio/mpeg',
         'Content-Type': 'application/json',
@@ -64,81 +82,80 @@ def call_api(text, voice_id, api_key):
         return None
 
 
-def transcribe(stream):
-    result = model.transcribe(stream.buffer, language="en")
+def transcribe(data):
+    result = model.transcribe(data, language="en")
     return result["text"]
 
 def output_data(raw_data):
-    with open('output', 'wb') as f:
-        f.write(raw_data)
-        print("wrote to output")
+    #with open('output', 'wb') as f:
+    #    f.write(raw_data)
+    #    print("wrote to output")
 
-    # send it to ffmpeg (pacat also works)
-    output = subprocess.Popen(
-        ["ffmpeg", "-loglevel", "error", "-re", "-f", "s16le", "-ar", "44100", "-i", "-", "-f", "pulse", "-device",
-         "LiveSynth", "sneed"],
-        stdin=subprocess.PIPE)
+    output = subprocess.Popen(cat_cmd, stdin=subprocess.PIPE)
     output.stdin.write(raw_data)
     output.stdin.close()
     output.wait()
 
 def read_until_stopped():
-    global stream
+    global recording_stream
     print("reading stream...")
     while True:
-        raw_audio = stream.process.stdout.read(512)
+        raw_audio = recording_stream.process.stdout.read(512)
         if not raw_audio:
             break
         audio_chunk = np.frombuffer(raw_audio, dtype=np.int16).flatten().astype(np.float32) / 32768.0
-        stream.buffer = np.append(stream.buffer, audio_chunk)
-    print("finished reading", stream.buffer.size, "bytes")
-    text = transcribe(stream)
+        recording_stream.buffer = np.append(recording_stream.buffer, audio_chunk)
+    print("finished reading", recording_stream.buffer.size, "bytes")
+    text = transcribe(recording_stream.buffer)
     if len(text.strip()):
         print("calling api with:", text)
         raw_data = call_api(text, voice_id, api_key)
         if raw_data is not None:
             output_data(raw_data)
     else:
-        print("empty string")
-    stream = None
+        print("transcribed to empty string")
+    recording_stream = None
 
 
 # Define the callback functions for key events
 def on_press(key):
-    global stream
-    if key == keyboard.Key.menu and stream is None:
-        print(f'Key {key} pressed')
-        print("creating stream")
-        stream = AudioStream()
+    global recording_stream
+    if key == keyboard.Key.menu and recording_stream is None:
+        print("now recording")
+        recording_stream = MicInput(record_cmd)
         reader_thread = threading.Thread(target=read_until_stopped)
         reader_thread.start()
 
 
 def on_release(key):
     # print(f'Key {key} released')
-    if key == keyboard.Key.menu and stream is not None:
+    if key == keyboard.Key.menu and recording_stream is not None:
         print("sending SIGINT")
-        stream.stop()
+        recording_stream.stop()
 
 
-#output = subprocess.Popen(
-#    ["ffmpeg", "-loglevel", "error", "-re", "-f", "s16le", "-ar", "44100", "-i", "-", "-f", "pulse", "-device", "sneed", "feed_and_seed"],
-#    stdin=subprocess.PIPE
-#)
-#output.stdin.write(b'\x00\x00')
-#output.stdin.flush()
-#stream = sd.OutputStream(device="LiveSynthSink")
-#stream.start()
+parser = argparse.ArgumentParser(
+    prog='LiveSynth'
+)
+parser.add_argument('-v', '--voice')
+parser.add_argument('-k', '--api-key')
+parser.add_argument('-in', '--input-source')
+parser.add_argument('-out', '--output-sink')
+args = parser.parse_args()
 
-voice_id = sys.argv[1]
-sink_name = sys.argv[2]
-api_key = sys.argv[3]
+voice_id = args.voice
+input_source = args.input_source
+output_sink = args.output_sink
+api_key = args.api_key
+
+record_cmd, cat_cmd = audio_commands(input_source, output_sink)
 
 print("Loading model...")
 model = whisper.load_model("medium")
 print("done loading")
 
-stream = None
+state = State.IDLE
+recording_stream = None
 # Set up the keyboard listener using the X11 backend
 listener = keyboard.Listener(
     on_press=on_press,

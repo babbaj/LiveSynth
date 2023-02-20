@@ -23,8 +23,7 @@
         pynput
         requests
         pydub
-        sounddevice
-        pyaudio
+        psutil
       ];
       python-env = (pkgs.python3.withPackages deps);
     in pkgs.mkShell rec {
