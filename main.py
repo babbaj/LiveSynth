@@ -93,40 +93,43 @@ def output_data(raw_data):
     output.wait()
 
 def read_until_stopped():
+    global state
     global recording_stream
-    print("reading stream...")
     while True:
         raw_audio = recording_stream.process.stdout.read(512)
         if not raw_audio:
             break
         audio_chunk = np.frombuffer(raw_audio, dtype=np.int16).flatten().astype(np.float32) / 32768.0
         recording_stream.buffer = np.append(recording_stream.buffer, audio_chunk)
-    print("finished reading", recording_stream.buffer.size, "bytes")
+    print("transcribing")
+    state = State.TRANSCRIBING
     text = transcribe(recording_stream.buffer).strip()
+    recording_stream = None
     if len(text):
+        state = State.GENERATING
         print("calling api with:", text)
         raw_data = call_api(text, voice_id, api_key)
         if raw_data is not None:
+            state = State.PLAYING
             output_data(raw_data)
     else:
         print("transcribed to empty string")
-    recording_stream = None
+    state = State.IDLE
 
 
-# Define the callback functions for key events
 def on_press(key):
+    global state
     global recording_stream
-    if key == keyboard.Key.menu and recording_stream is None:
-        print("now recording")
+    if key == keyboard.Key.menu and state == State.IDLE:
+        print("recording")
         recording_stream = MicInput(record_cmd)
+        state = State.RECORDING
         reader_thread = threading.Thread(target=read_until_stopped)
         reader_thread.start()
 
 
 def on_release(key):
-    # print(f'Key {key} released')
     if key == keyboard.Key.menu and recording_stream is not None:
-        print("sending SIGINT")
         recording_stream.stop()
 
 
@@ -144,7 +147,6 @@ input_source = args.input_source
 output_sink = args.output_sink
 api_key = args.api_key
 
-print(output_sink)
 record_cmd, cat_cmd = audio_commands(input_source, output_sink)
 print("record =", ' '.join(record_cmd))
 print("playback =", ' '.join(cat_cmd))
@@ -162,4 +164,7 @@ listener = keyboard.Listener(
     backend='x11'
 )
 listener.start()
-listener.join()
+try:
+    listener.join()
+except KeyboardInterrupt:
+    pass
