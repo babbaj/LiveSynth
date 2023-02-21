@@ -8,7 +8,7 @@ LiveSynth is a program that allows you to generate a voice with AI using OpenAI'
 
 ## Usage
 
-`python whisper.py --voice 21m00Tcm4TlvDq8ikWAM --api-key \<your xi-api-key>`
+`python whisper.py --voice 21m00Tcm4TlvDq8ikWAM --api-key <your xi-api-key>`
 
 The default whisper model requires 5GB of vram. This can be changed with `--model`. The available whisper models are documented [here](https://github.com/openai/whisper#available-models-and-languages)
 
