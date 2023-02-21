@@ -134,35 +134,37 @@ def on_release(key):
 parser = argparse.ArgumentParser(
     prog='LiveSynth'
 )
-parser.add_argument('-v', '--voice')
-parser.add_argument('-k', '--api-key')
+parser.add_argument('-v', '--voice', help='The voice_id (not the name of the voice)')
+parser.add_argument('-k', '--api-key', help="The ElevenLabs api key")
+parser.add_argument('-m', '--model', default='medium', help='The whisper model to use')
 parser.add_argument('-in', '--input-source')
 parser.add_argument('-out', '--output-sink')
 args = parser.parse_args()
 
 voice_id = args.voice
+api_key = args.api_key
+whisper_model = args.model
 input_source = args.input_source
 output_sink = args.output_sink
-api_key = args.api_key
 
-record_cmd, cat_cmd = audio_commands(input_source, output_sink)
-print("record =", ' '.join(record_cmd))
-print("playback =", ' '.join(cat_cmd))
-
-print("Loading model...")
-model = whisper.load_model("medium")
-print("done loading")
-
-state = State.IDLE
-recording_stream = None
-# Set up the keyboard listener using the X11 backend
-listener = keyboard.Listener(
-    on_press=on_press,
-    on_release=on_release,
-    backend='x11'
-)
-listener.start()
 try:
+    record_cmd, cat_cmd = audio_commands(input_source, output_sink)
+    print("record =", ' '.join(record_cmd))
+    print("playback =", ' '.join(cat_cmd))
+
+    print("Loading model...")
+    model = whisper.load_model(whisper_model)
+    print("done loading")
+
+    state = State.IDLE
+    recording_stream = None
+    # Set up the keyboard listener using the X11 backend
+    listener = keyboard.Listener(
+        on_press=on_press,
+        on_release=on_release,
+        backend='x11'
+    )
+    listener.start()
     listener.join()
 except KeyboardInterrupt:
     pass
