@@ -64,10 +64,10 @@ def call_api(text, voice_id, api_key):
     }
     data = {
         'text': text,
-        'voice_settings': {
-            'stability': 0.75,
-            'similarity_boost': 0.80
-        }
+        #'voice_settings': {
+        #    'stability': 0.75,
+        #    'similarity_boost': 0.80
+        #}
     }
     response = requests.post(url, headers=headers, json=data)
     if response.status_code == 200:
@@ -87,10 +87,6 @@ def transcribe(data):
     return result["text"]
 
 def output_data(raw_data):
-    #with open('output', 'wb') as f:
-    #    f.write(raw_data)
-    #    print("wrote to output")
-
     output = subprocess.Popen(cat_cmd, stdin=subprocess.PIPE)
     output.stdin.write(raw_data)
     output.stdin.close()
@@ -106,8 +102,8 @@ def read_until_stopped():
         audio_chunk = np.frombuffer(raw_audio, dtype=np.int16).flatten().astype(np.float32) / 32768.0
         recording_stream.buffer = np.append(recording_stream.buffer, audio_chunk)
     print("finished reading", recording_stream.buffer.size, "bytes")
-    text = transcribe(recording_stream.buffer)
-    if len(text.strip()):
+    text = transcribe(recording_stream.buffer).strip()
+    if len(text):
         print("calling api with:", text)
         raw_data = call_api(text, voice_id, api_key)
         if raw_data is not None:
@@ -150,8 +146,8 @@ api_key = args.api_key
 
 print(output_sink)
 record_cmd, cat_cmd = audio_commands(input_source, output_sink)
-print("record =", record_cmd)
-print("playback =", cat_cmd)
+print("record =", ' '.join(record_cmd))
+print("playback =", ' '.join(cat_cmd))
 
 print("Loading model...")
 model = whisper.load_model("medium")
