@@ -54,7 +54,7 @@ class MicInput:
 
 
 def call_api(text, voice_id, api_key):
-    url = 'https://api.elevenlabs.io/v1/text-to-speech/' + voice_id
+    url = 'https://api.elevenlabs.io/v1/text-to-speech/' + voice_id + "/stream"
     headers = {
         'accept': 'audio/mpeg',
         'Content-Type': 'application/json',
@@ -109,6 +109,7 @@ def read_until_stopped():
         raw_data = call_api(text, voice_id, api_key)
         if raw_data is not None:
             state = State.PLAYING
+            print("outputting")
             output_data(raw_data)
     else:
         print("transcribed to empty string")
