@@ -24,4 +24,4 @@ pactl load-module module-remap-source master="LiveSynth.monitor" source_name="Li
 
 ## Caveats
 - Whisper uses a lot of VRAM (5GB for medium)
-- The ElevenLabs API often takes a while to return a result. Hopefully open source AI voice will catch up soon.
+- The ElevenLabs API often takes a while to return a result. Hopefully open source AI voice will catch up soon because this sucks.
