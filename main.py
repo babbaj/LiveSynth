@@ -136,7 +136,7 @@ parser = argparse.ArgumentParser(
 )
 parser.add_argument('-v', '--voice', help='The voice_id (not the name of the voice)')
 parser.add_argument('-k', '--api-key', help="The ElevenLabs api key")
-parser.add_argument('-m', '--model', default='medium', help='The whisper model to use')
+parser.add_argument('-m', '--model', default='medium.en', help='The whisper model to use')
 parser.add_argument('-in', '--input-source')
 parser.add_argument('-out', '--output-sink')
 args = parser.parse_args()
