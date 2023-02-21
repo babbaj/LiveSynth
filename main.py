@@ -1,11 +1,9 @@
 import io
-import sys
-import os
 import argparse
 from enum import Enum
 
 import whisper
-from whisper.audio import SAMPLE_RATE
+from whisper.audio import SAMPLE_RATE as WHISPER_SAMPLE_RATE
 import numpy as np
 import signal
 import threading
@@ -29,12 +27,12 @@ def audio_commands(source, sink):
     for process in psutil.process_iter(['name']):
         if process.info['name'] == 'pipewire':
             return (
-                ["pw-record", *(["--target", source] if source else []), *format(SAMPLE_RATE), "--latency=50", "-"],
+                ["pw-record", *(["--target", source] if source else []), *format(WHISPER_SAMPLE_RATE), "--latency=50", "-"],
                 ["pw-cat", *(["--target", sink] if sink else []), *format(44100), "-p", "-"]
             )
-        elif process.info['name'] == 'pulseaudio':
+        elif process.info['name'] == 'pulseaudio':  # not the ideal way to check for pulse but good enough
             return (
-                ["parec", *(["--device", source] if source else []), *format(SAMPLE_RATE), "--latency-msec=50"],
+                ["parec", *(["--device", source] if source else []), *format(WHISPER_SAMPLE_RATE), "--latency-msec=50"],
                 ["pacat", *(["--device", sink] if sink else []), *format(44100)]
             )
     else:
