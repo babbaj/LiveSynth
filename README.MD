@@ -16,7 +16,7 @@ The default whisper model requires 5GB of vram. This can be changed with `--mode
 
 To output to a custom sink (useful for using as an input device) you can use the `--output-sink` option which expects the name or serial of the sink.
 
-`--input-sink` is also available to choose a specific input.
+`--input-source` is also available to choose a specific input.
 
 Creating a virtual sink (named LiveSynth) and source (named LiveSynthSource) can be done with a couple commands:
 ```
