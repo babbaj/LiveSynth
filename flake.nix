@@ -24,6 +24,7 @@
         requests
         pydub
         psutil
+        xlib
       ];
       python-env = (pkgs.python3.withPackages deps);
     in pkgs.mkShell rec {

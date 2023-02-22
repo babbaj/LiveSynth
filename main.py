@@ -12,6 +12,7 @@ import requests
 from pydub import AudioSegment
 from pynput import keyboard
 import psutil
+import Xlib.XK as XK
 
 
 class State(Enum):
@@ -115,11 +116,19 @@ def read_until_stopped():
         print("transcribed to empty string")
     state = State.IDLE
 
+def get_keysym(cringe):
+    # very elegant and consistent library
+    if hasattr(cringe, 'value'):
+        return cringe.value.vk
+    else:
+        return cringe.vk
 
 def on_press(key):
     global state
     global recording_stream
-    if key == keyboard.Key.menu and state == State.IDLE:
+    keysym = get_keysym(key)
+
+    if keysym == keysym_config and state == State.IDLE:
         print("recording")
         recording_stream = MicInput(record_cmd)
         state = State.RECORDING
@@ -128,7 +137,8 @@ def on_press(key):
 
 
 def on_release(key):
-    if key == keyboard.Key.menu and recording_stream is not None:
+    keysym = get_keysym(key)
+    if keysym == keysym_config and recording_stream is not None:
         recording_stream.stop()
 
 
@@ -136,7 +146,9 @@ parser = argparse.ArgumentParser(
     prog='LiveSynth'
 )
 parser.add_argument('-v', '--voice', help='The voice_id (not the name of the voice)')
-parser.add_argument('-k', '--api-key', help="The ElevenLabs api key")
+parser.add_argument('-k', '--key', default='shift_r', help="The key (x11 keysym name, case insensitive) to use to start recording voice input")
+parser.add_argument('--api-key', help="The ElevenLabs api key")
+parser.add_argument('--cpu', action='store_true', help="Run whisper on the cpu")
 parser.add_argument('-m', '--model', default='medium.en', help='The whisper model to use')
 parser.add_argument('-in', '--input-source')
 parser.add_argument('-out', '--output-sink')
@@ -144,9 +156,13 @@ args = parser.parse_args()
 
 voice_id = args.voice
 api_key = args.api_key
+use_cpu = args.cpu
 whisper_model = args.model
 input_source = args.input_source
 output_sink = args.output_sink
+
+all_keysyms = {k[3:].lower(): v for k, v in vars(XK).items() if k.startswith('XK_')}
+keysym_config = all_keysyms[args.key]
 
 try:
     record_cmd, cat_cmd = audio_commands(input_source, output_sink)
@@ -154,7 +170,7 @@ try:
     print("playback =", ' '.join(cat_cmd))
 
     print("Loading model...")
-    model = whisper.load_model(whisper_model)
+    model = whisper.load_model(whisper_model, device='cpu' if use_cpu else 'cuda')
     print("done loading")
 
     state = State.IDLE
