@@ -1,6 +1,7 @@
 import io
 import argparse
 from enum import Enum
+import traceback
 
 import whisper
 from whisper.audio import SAMPLE_RATE as WHISPER_SAMPLE_RATE
@@ -9,7 +10,6 @@ import signal
 import threading
 import subprocess
 import requests
-from pydub import AudioSegment
 from pynput import keyboard
 import psutil
 import Xlib.XK as XK
@@ -20,6 +20,7 @@ class State(Enum):
     RECORDING = 2
     TRANSCRIBING = 3
     GENERATING = 4
+    BUFFERED = 4 # audio received from api but we aren't playing it yet
     PLAYING = 5
 
 
@@ -38,6 +39,10 @@ def audio_commands(source, sink):
             )
     else:
         print(f"No process named \"pipewire\" or \"pulseaudio\" running")
+
+def ffmpeg_decode_mp3():
+    cmd = "ffmpeg -hide_banner -loglevel error -f mp3 -i - -f s16le -ar 44100 -ac 1 -".split(' ')
+    return subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
 
 
 class MicInput:
@@ -68,14 +73,9 @@ def call_api(text, voice_id, api_key):
         #    'similarity_boost': 0.80
         #}
     }
-    response = requests.post(url, headers=headers, json=data)
+    response = requests.post(url, headers=headers, json=data, stream=True)
     if response.status_code == 200:
-        # Access the audio data from the response content
-        mp3 = response.content
-        audio = AudioSegment.from_file(io.BytesIO(mp3), format='mp3')
-        # Get the raw audio data as a byte string
-        # this is 44.1khz signed 16 bit
-        return audio.raw_data
+        return response
     else:
         print(f'Request failed with status code {response.status_code}')
         return None
@@ -85,10 +85,12 @@ def transcribe(data):
     result = model.transcribe(data, language="en")
     return result["text"]
 
-def output_data(raw_data):
-    output = subprocess.Popen(cat_cmd, stdin=subprocess.PIPE)
-    output.stdin.write(raw_data)
-    output.stdin.close()
+def output_data(response):
+    decoder = ffmpeg_decode_mp3()
+    output = subprocess.Popen(cat_cmd, stdin=decoder.stdout)
+    for chunk in response.iter_content(chunk_size=1024):
+        decoder.stdin.write(chunk)
+    decoder.stdin.close()
     output.wait()
 
 def read_until_stopped():
@@ -102,16 +104,23 @@ def read_until_stopped():
         recording_stream.buffer = np.append(recording_stream.buffer, audio_chunk)
     print("transcribing")
     state = State.TRANSCRIBING
-    text = transcribe(recording_stream.buffer).strip()
+    try:
+        text = transcribe(recording_stream.buffer).strip()
+    except Exception as e:
+        print("Whisper did an oopsie")
+        traceback.print_exc()
+        state = State.IDLE
+        return
+
     recording_stream = None
     if len(text):
         state = State.GENERATING
         print("calling api with:", text)
-        raw_data = call_api(text, voice_id, api_key)
-        if raw_data is not None:
+        response = call_api(text, voice_id, api_key)
+        if response is not None:
             state = State.PLAYING
             print("outputting")
-            output_data(raw_data)
+            output_data(response)
     else:
         print("transcribed to empty string")
     state = State.IDLE

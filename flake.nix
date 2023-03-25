@@ -22,7 +22,6 @@
         (openai-whisper.override({torch = torchWithCuda;}))
         pynput
         requests
-        pydub
         psutil
         xlib
       ];
