@@ -24,12 +24,16 @@
         requests
         psutil
         xlib
+        pygobject3
       ];
       python-env = (pkgs.python3.withPackages deps);
     in pkgs.mkShell rec {
       venvDir = ".venv";
       packages = with pkgs; [
         python3.pkgs.venvShellHook
+        gtk4
+        gtk3
+        gobject-introspection
       ];
       postShellHook = let prefix = pkgs.python3.libPrefix; in ''
         ln -sf ${python-env}/lib/${prefix}/site-packages/* ${venvDir}/lib/${prefix}/site-packages

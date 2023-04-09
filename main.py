@@ -1,5 +1,5 @@
-import io
 import argparse
+import os
 from enum import Enum
 import traceback
 
@@ -13,6 +13,11 @@ import requests
 from pynput import keyboard
 import psutil
 import Xlib.XK as XK
+import json
+
+import gi
+gi.require_version("Gtk", "4.0")
+from gi.repository import Gtk
 
 
 class State(Enum):
@@ -20,8 +25,14 @@ class State(Enum):
     RECORDING = 2
     TRANSCRIBING = 3
     GENERATING = 4
-    BUFFERED = 4 # audio received from api but we aren't playing it yet
+    BUFFERED = 4  # audio received from api but we aren't playing it yet
     PLAYING = 5
+
+class Gui():
+    def __init__(self):
+        self.voices = Gtk.ComboBoxText()
+        self.text_output = Gtk.TextView()
+
 
 
 def audio_commands(source, sink):
@@ -29,7 +40,8 @@ def audio_commands(source, sink):
     for process in psutil.process_iter(['name']):
         if process.info['name'] == 'pipewire':
             return (
-                ["pw-record", *(["--target", source] if source else []), *format(WHISPER_SAMPLE_RATE), "--latency=50", "-"],
+                ["pw-record", *(["--target", source] if source else []), *format(WHISPER_SAMPLE_RATE), "--latency=50",
+                 "-"],
                 ["pw-cat", *(["--target", sink] if sink else []), *format(44100), "-p", "-"]
             )
         elif process.info['name'] == 'pulseaudio':  # not the ideal way to check for pulse but good enough
@@ -39,6 +51,7 @@ def audio_commands(source, sink):
             )
     else:
         print(f"No process named \"pipewire\" or \"pulseaudio\" running")
+
 
 def ffmpeg_decode_mp3():
     cmd = "ffmpeg -hide_banner -loglevel error -f mp3 -i - -f s16le -ar 44100 -ac 1 -".split(' ')
@@ -68,10 +81,10 @@ def call_api(text, voice_id, api_key):
     }
     data = {
         'text': text,
-        #'voice_settings': {
+        # 'voice_settings': {
         #    'stability': 0.75,
         #    'similarity_boost': 0.80
-        #}
+        # }
     }
     response = requests.post(url, headers=headers, json=data, stream=True)
     if response.status_code == 200:
@@ -80,10 +93,29 @@ def call_api(text, voice_id, api_key):
         print(f'Request failed with status code {response.status_code}')
         return None
 
+def query_voices(api_key):
+    url = 'https://api.elevenlabs.io/v1/voices'
+    headers = {
+        'accept': 'application/json',
+        'xi-api-key': api_key
+    }
+
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:
+        return response.content
+    else:
+        print(f'Request failed with status code {response.status_code}')
+        return None
+
+def parse_voices(api_result):
+    data = json.loads(api_result)
+    voices = data['voices']
+    return {v['voice_id']: v['name'] for v in voices if v['category'] != 'premade'}
 
 def transcribe(data):
     result = model.transcribe(data, language="en")
     return result["text"]
+
 
 def output_data(response):
     decoder = ffmpeg_decode_mp3()
@@ -93,9 +125,11 @@ def output_data(response):
     decoder.stdin.close()
     output.wait()
 
+
 def read_until_stopped():
     global state
     global recording_stream
+    global gui
     while True:
         raw_audio = recording_stream.process.stdout.read(512)
         if not raw_audio:
@@ -106,6 +140,7 @@ def read_until_stopped():
     state = State.TRANSCRIBING
     try:
         text = transcribe(recording_stream.buffer).strip()
+        gui.text_output.get_buffer().set_text(text)
     except Exception as e:
         print("Whisper did an oopsie")
         traceback.print_exc()
@@ -116,7 +151,7 @@ def read_until_stopped():
     if len(text):
         state = State.GENERATING
         print("calling api with:", text)
-        response = call_api(text, voice_id, api_key)
+        response = call_api(text, gui.voices.get_active_id(), api_key)
         if response is not None:
             state = State.PLAYING
             print("outputting")
@@ -125,12 +160,14 @@ def read_until_stopped():
         print("transcribed to empty string")
     state = State.IDLE
 
+
 def get_keysym(cringe):
     # very elegant and consistent library
     if hasattr(cringe, 'value'):
         return cringe.value.vk
     else:
         return cringe.vk
+
 
 def on_press(key):
     global state
@@ -151,11 +188,80 @@ def on_release(key):
         recording_stream.stop()
 
 
+def input_loop():
+    try:
+        global record_cmd
+        global cat_cmd
+        record_cmd, cat_cmd = audio_commands(input_source, output_sink)
+        print("record =", ' '.join(record_cmd))
+        print("playback =", ' '.join(cat_cmd))
+
+        print("Loading model...")
+        global model
+        model = whisper.load_model(whisper_model, device='cpu' if use_cpu else 'cuda')
+        print("done loading")
+        global state
+        state = State.IDLE
+        global recording_stream
+        recording_stream = None
+        # Set up the keyboard listener using the X11 backend
+        listener = keyboard.Listener(
+            on_press=on_press,
+            on_release=on_release,
+            backend='x11'
+        )
+        listener.start()
+        listener.join()
+    except KeyboardInterrupt:
+        print("reee")
+        pass
+
+
+def on_activate(app):
+    win = Gtk.ApplicationWindow(application=app)
+    win.set_title('LiveSynth')
+    win.set_default_size(800, 500)
+    grid = Gtk.Grid()
+    grid.set_column_homogeneous(True)
+    win.set_child(grid)
+
+    global gui
+
+    title_label = Gtk.Label(label="Voices")
+    title_label.set_halign(Gtk.Align.CENTER)
+    title_label.set_margin_bottom(10)  # Add margin of 10 pixels
+    title_label.set_margin_top(10)
+    title_label.set_markup("<span size='xx-large'><b>Voices</b></span>")
+    grid.attach(title_label, 0, 0, 1, 1)
+
+    combo = gui.voices
+    grid.attach(combo, 0, 1, 1, 1)
+
+    text_view = gui.text_output
+    text_view.set_editable(False)
+    text_view.set_cursor_visible(False)
+    text_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+    text_view.set_vexpand(True)
+    grid.attach(text_view, 0, 2, 1, 1)
+
+    check_button = Gtk.CheckButton.new_with_label("Buffer Result")
+    check_button.set_halign(Gtk.Align.START)
+    check_button.set_valign(Gtk.Align.CENTER)
+    check_button.set_margin_start(20)
+    check_button.set_margin_top(10)
+    check_button.set_margin_bottom(10)
+    grid.attach(check_button, 0, 3, 1, 1)
+
+    win.connect('close-request', lambda _: os._exit(0))
+    win.present()
+
+
 parser = argparse.ArgumentParser(
     prog='LiveSynth'
 )
 parser.add_argument('-v', '--voice', help='The voice_id (not the name of the voice)')
-parser.add_argument('-k', '--key', default='shift_r', help="The key (x11 keysym name, case insensitive) to use to start recording voice input")
+parser.add_argument('-k', '--key', default='shift_r',
+                    help="The key (x11 keysym name, case insensitive) to use to start recording voice input")
 parser.add_argument('--api-key', help="The ElevenLabs api key")
 parser.add_argument('--cpu', action='store_true', help="Run whisper on the cpu")
 parser.add_argument('-m', '--model', default='medium.en', help='The whisper model to use')
@@ -173,24 +279,23 @@ output_sink = args.output_sink
 all_keysyms = {k[3:].lower(): v for k, v in vars(XK).items() if k.startswith('XK_')}
 keysym_config = all_keysyms[args.key]
 
+gui = Gui()
+voice_json = query_voices(api_key)
+if voice_json is None:
+    print("failed to query voices")
+    exit(1)
+voices = parse_voices(voice_json)
+for id, name in voices.items():
+    gui.voices.append(id, name)
+gui.voices.set_active_id(voice_id)
+
+app = Gtk.Application(application_id='dev.babbaj.LiveSynth')
+app.connect('activate', on_activate)
+input_thread = threading.Thread(target=input_loop, daemon=True)
+
 try:
-    record_cmd, cat_cmd = audio_commands(input_source, output_sink)
-    print("record =", ' '.join(record_cmd))
-    print("playback =", ' '.join(cat_cmd))
-
-    print("Loading model...")
-    model = whisper.load_model(whisper_model, device='cpu' if use_cpu else 'cuda')
-    print("done loading")
-
-    state = State.IDLE
-    recording_stream = None
-    # Set up the keyboard listener using the X11 backend
-    listener = keyboard.Listener(
-        on_press=on_press,
-        on_release=on_release,
-        backend='x11'
-    )
-    listener.start()
-    listener.join()
+    input_thread.start()
+    app.run()
+    input_thread.join()
 except KeyboardInterrupt:
-    pass
+    os._exit(0)
