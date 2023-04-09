@@ -42,7 +42,7 @@ def audio_commands(source, sink):
 
 def ffmpeg_decode_mp3():
     cmd = "ffmpeg -hide_banner -loglevel error -f mp3 -i - -f s16le -ar 44100 -ac 1 -".split(' ')
-    return subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+    return subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=output.stdin)
 
 
 class MicInput:
@@ -87,11 +87,9 @@ def transcribe(data):
 
 def output_data(response):
     decoder = ffmpeg_decode_mp3()
-    output = subprocess.Popen(cat_cmd, stdin=decoder.stdout)
     for chunk in response.iter_content(chunk_size=1024):
         decoder.stdin.write(chunk)
     decoder.stdin.close()
-    output.wait()
 
 def read_until_stopped():
     global state
@@ -181,6 +179,7 @@ try:
     print("Loading model...")
     model = whisper.load_model(whisper_model, device='cpu' if use_cpu else 'cuda')
     print("done loading")
+    output = subprocess.Popen(cat_cmd, stdin=subprocess.PIPE)
 
     state = State.IDLE
     recording_stream = None
