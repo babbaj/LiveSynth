@@ -20,10 +20,20 @@
     devShells.${system}.default = let
       deps = p: with p; [
         (openai-whisper.override({torch = torchWithCuda;}))
+        (openai.overrideAttrs(final: old: rec {
+            version = "0.27.4";
+            src = pkgs.fetchFromGitHub {
+              owner = "openai";
+              repo = "openai-python";
+              rev = "refs/tags/v${version}";
+              hash = "sha256-E6Y4PdxwR1V4j48bbbuV6DtgAtXRyEMa9ipA1URL2Ac=";
+            };
+        }))
         pynput
         requests
         psutil
         xlib
+        pydub
       ];
       python-env = (pkgs.python3.withPackages deps);
     in pkgs.mkShell rec {
