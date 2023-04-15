@@ -15,6 +15,7 @@ import psutil
 import Xlib.XK as XK
 import openai
 from pydub import AudioSegment
+import torch
 
 
 class State(Enum):
@@ -25,9 +26,15 @@ class State(Enum):
     BUFFERED = 4 # audio received from api but we aren't playing it yet
     PLAYING = 5
 
+def force_cudnn_initialization():
+    s = 32
+    dev = torch.device('cuda')
+    torch.nn.functional.conv2d(torch.zeros(s, s, s, s, device=dev), torch.zeros(s, s, s, s, device=dev))
 
 class WhisperLocal:
     def __init__(self, model_name, use_cpu):
+        if not use_cpu:
+            force_cudnn_initialization()
         print("Loading model...")
         self.model = whisper.load_model(model_name, device='cpu' if use_cpu else 'cuda')
         print("done loading")
